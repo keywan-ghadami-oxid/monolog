@@ -15,17 +15,39 @@ use Monolog\Handler\TestHandler;
 
 class ErrorHandlerTest extends \PHPUnit_Framework_TestCase
 {
+    private $testHandler;
     public function testHandleError()
     {
-        $logger = new Logger('test', array($handler = new TestHandler));
-        $errHandler = new ErrorHandler($logger);
+        $errHandler = $this->getErrorHandler();
 
         $errHandler->registerErrorHandler(array(E_USER_NOTICE => Logger::EMERGENCY), false);
         trigger_error('Foo', E_USER_ERROR);
-        $this->assertCount(1, $handler->getRecords());
-        $this->assertTrue($handler->hasErrorRecords());
+        $this->assertCount(1, $this->testHandler->getRecords());
+        $this->assertTrue($this->testHandler->hasErrorRecords());
         trigger_error('Foo', E_USER_NOTICE);
-        $this->assertCount(2, $handler->getRecords());
-        $this->assertTrue($handler->hasEmergencyRecords());
+        $this->assertCount(2, $this->testHandler->getRecords());
+        $this->assertTrue($this->testHandler->hasEmergencyRecords());
     }
+
+    private function getErrorHandler()
+    {      
+        $logger = new Logger('test', array($handler = new TestHandler));
+        $this->testHandler = $handler;
+        return new ErrorHandler($logger);
+    }
+  
+
+    public function testParentErrorHandlerCall(){
+        $mock = $this->getMock('ParentErrorHandler',array('h'));
+        $mock->expects($this->exactly(2))->method('h');
+        $old = set_error_handler(array($mock,'h'));
+        $errHandler = $this->getErrorHandler();
+        $errHandler->registerErrorHandler();
+        trigger_error('Foo', E_USER_ERROR);
+        trigger_error('Foo', E_USER_NOTICE);
+
+        //cleanup
+        set_error_handler($old);
+        
+    }    
 }

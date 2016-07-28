@@ -33,6 +33,8 @@ class ErrorHandler
 
     private $previousErrorHandler;
     private $errorLevelMap;
+    private $respectErrorReportingSetting;
+    const SUPRESSED_ERROR_CODE = 0;
 
     private $hasFatalErrorHandler;
     private $fatalLevel;
@@ -80,8 +82,10 @@ class ErrorHandler
         }
     }
 
-    public function registerErrorHandler(array $levelMap = array(), $callPrevious = true, $errorTypes = -1)
+    public function registerErrorHandler(array $levelMap = array(), $callPrevious = true, $errorTypes = -1,
+            $respectErrorReportingSetting = true)
     {
+        $this->respectErrorReportingSetting  = $respectErrorReportingSetting;
         $prev = set_error_handler(array($this, 'handleError'), $errorTypes);
         $this->errorLevelMap = array_replace($this->defaultErrorLevelMap(), $levelMap);
         if ($callPrevious) {
@@ -101,6 +105,7 @@ class ErrorHandler
     protected function defaultErrorLevelMap()
     {
         return array(
+            self::SUPRESSED_ERROR_CODE  => LogLevel::DEBUG,
             E_ERROR             => LogLevel::CRITICAL,
             E_WARNING           => LogLevel::WARNING,
             E_PARSE             => LogLevel::ALERT,
@@ -142,16 +147,22 @@ class ErrorHandler
      */
     public function handleError($code, $message, $file = '', $line = 0, $context = array())
     {
-        if (!(error_reporting() & $code)) {
-            return;
-        }
+        //php setting that defines which types of errors should be handled
+        $error_reporting = error_reporting();        
+        $errorReportingPass = !$this->respectErrorReportingSetting || (error_reporting() & $code);
+         
 
-        // fatal error codes are ignored if a fatal error handler is present as well to avoid duplicate log entries
-        if (!$this->hasFatalErrorHandler || !in_array($code, self::$fatalErrors, true)) {
-            $level = isset($this->errorLevelMap[$code]) ? $this->errorLevelMap[$code] : LogLevel::CRITICAL;
-            $this->logger->log($level, self::codeToString($code).': '.$message, array('code' => $code, 'message' => $message, 'file' => $file, 'line' => $line, 'context' => $context));
+        if ($errorReportingPass) { 
+            //the error_reporting value will be 0 if the statement that caused the error was prepended by the @ error-control-operator    
+            if ($error_reporting == 0) {
+                $code = self::SUPRESSED_ERROR_CODE; 
+            }       
+            // fatal error codes are ignored if a fatal error handler is present as well to avoid duplicate log entries
+            if (!$this->hasFatalErrorHandler || !in_array($code, self::$fatalErrors, true)) {
+                $level = isset($this->errorLevelMap[$code]) ? $this->errorLevelMap[$code] : LogLevel::CRITICAL;
+                $this->logger->log($level, self::codeToString($code).': '.$message, array('code' => $code, 'message' => $message, 'file' => $file, 'line' => $line, 'context' => $context));
+            }
         }
-
         if ($this->previousErrorHandler === true) {
             return false;
         } elseif ($this->previousErrorHandler) {
@@ -217,6 +228,8 @@ class ErrorHandler
                 return 'E_DEPRECATED';
             case E_USER_DEPRECATED:
                 return 'E_USER_DEPRECATED';
+            case self::SUPRESSED_ERROR_CODE:
+                return 'SUPRESSED_ERROR';
         }
 
         return 'Unknown PHP error';
